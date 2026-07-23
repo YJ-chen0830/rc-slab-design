@@ -248,7 +248,18 @@ function calcOW(){
 
   var hMin = L*1000/20; // mm, simply supported, fy=420
   var deflOK = h >= hMin;
-  var flexOK = !ngFlexure && asProvided >= asUse;
+
+  // 拉力控制驗證（ACI 318-19 §21.2.2）：以實配 As 反算中性軸深度與 εt，
+  // 確認前面 Rn 公式中假設之 φ=0.9 是否成立。
+  var beta1 = fc<=28?0.85:(fc>=55?0.65:0.85-0.05*(fc-28)/7);
+  var rhob = (0.85*fc*beta1/fy)*(600/(600+fy));
+  var rhoMax = 0.75*rhob;
+  var asMaxRho = rhoMax*b*d;
+  var cNA = ngFlexure?0:(asProvided*fy)/(0.85*fc*beta1*b);
+  var epsT = (ngFlexure||cNA<=0)?0:0.003*(d-cNA)/cNA;
+  var tensionControlledOK = !ngFlexure && epsT>=0.005;
+
+  var flexOK = !ngFlexure && asProvided >= asUse && tensionControlledOK;
 
   var res = document.getElementById('ow-result');
   res.innerHTML =
@@ -259,6 +270,8 @@ function calcOW(){
     '<tr><td>有效深度 d</td><td>'+f1(d)+' mm</td></tr>'+
     '<tr><td>需求鋼筋量 As,需求</td><td>'+f1(asUse)+' mm²/m</td></tr>'+
     '<tr><td>建議配筋</td><td>D'+dia+' @ '+spacingUse+'mm（As='+f1(asProvided)+' mm²/m）</td></tr>'+
+    '<tr><td>最大鋼筋量 As,max=0.75ρb·b·d</td><td>'+f1(asMaxRho)+' mm²/m '+(!ngFlexure&&asProvided<=asMaxRho?'<span class="ok">OK</span>':'<span class="ng">NG 過筋</span>')+'</td></tr>'+
+    '<tr><td>拉力控制驗證 εt（需≥0.005）</td><td>'+(ngFlexure?'—':f3(epsT))+' '+(tensionControlledOK?'<span class="ok">OK</span>':'<span class="ng">NG，φ=0.9假設不成立</span>')+'</td></tr>'+
     '<tr><td>撓度檢核（h≥L/20）</td><td>'+(deflOK?'<span class="ok">OK</span>':'<span class="ng">NG，需計算撓度或加厚</span>')+'</td></tr>'+
     '<tr><td>撓曲設計判定</td><td>'+(flexOK?'<span class="ok">OK</span>':'<span class="ng">NG</span>')+'</td></tr>'+
     '</table>';
@@ -289,11 +302,23 @@ function calcOW(){
   p+='  單根鋼筋斷面積 = π/4×'+dia+'² = '+f1(asPerBar)+' mm²\n';
   p+='  計算間距 = '+f1(asPerBar)+'×1000/'+f1(asUse)+' = '+f1(spacingCalc)+' mm，取實用間距 '+spacingUse+' mm（上限 min(3h,450)='+spacingMax+' mm）\n';
   p+='  實際提供 As = '+f1(asPerBar)+'×1000/'+spacingUse+' = '+f1(asProvided)+' mm²/m ≥ '+f1(asUse)+'？'+(asProvided>=asUse?'是':'否')+'\n\n';
-  p+='【四】最小厚度規定（撓度免計算條件，簡支板）\n';
+  p+='【四】最大鋼筋量與拉力控制驗證（ACI 318-19 §21.2.2）\n';
+  if (ngFlexure) {
+    p+='  斷面不足，略過驗證。\n\n';
+  } else {
+    p+='  β1 = '+f3(beta1)+'（依 f\'c='+fc+' MPa）\n';
+    p+='  ρb = (0.85×f\'c×β1/fy)×[600/(600+fy)] = '+f3(rhob)+'\n';
+    p+='  As,max = 0.75×ρb×b×d = '+f1(asMaxRho)+' mm²/m\n';
+    p+='  實際提供 As = '+f1(asProvided)+' mm²/m '+(asProvided<=asMaxRho?'≤':'>')+' As,max → '+(asProvided<=asMaxRho?'OK':'NG 過筋')+'\n';
+    p+='  以實配 As 反算中性軸深度：c = As×fy/(0.85×f\'c×β1×b) = '+f1(cNA)+' mm\n';
+    p+='  εt = 0.003×(d−c)/c = 0.003×('+f1(d)+'−'+f1(cNA)+')/'+f1(cNA)+' = '+f3(epsT)+'\n';
+    p+='  判定：εt '+(tensionControlledOK?'≥':'<')+' 0.005 → '+(tensionControlledOK?'拉力控制，前段 φ=0.9 假設成立':'NG，φ=0.9 假設不成立，需加厚板厚或提高f\'c以降低所需配筋')+'\n\n';
+  }
+  p+='【五】最小厚度規定（撓度免計算條件，簡支板）\n';
   p+='  h,min = L/20 = '+(L*1000).toFixed(0)+'/20 = '+f1(hMin)+' mm\n';
   p+='  h = '+h+' mm '+(deflOK?'≥':'<')+' h,min = '+f1(hMin)+' mm → '+(deflOK?'OK，免計算撓度':'NG，需進行撓度計算或加厚板厚')+'\n\n';
   p+='━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
-  p+='  參考：ACI 318-19 §7（一維板設計）、Table 7.3.1.1（最小厚度）、§24.4（溫度收縮鋼筋）\n';
+  p+='  參考：ACI 318-19 §7（一維板設計）、Table 7.3.1.1（最小厚度）、§24.4（溫度收縮鋼筋）、§21.2.2（拉力控制驗證）\n';
   p+='━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━';
   document.getElementById('ow-proc-text').textContent=p;
   document.getElementById('ow-proc').style.display='';
@@ -358,10 +383,12 @@ window.jrhDocMeta={
  "doc": "RC 樓板設計計算書",
  "codes": [
   "ACI 318-19 Chapter 7（一維板設計）、Chapter 8（雙向板設計）",
-  "ACI 318-19 §22.6（雙向作用剪力/衝剪）"
+  "ACI 318-19 §22.6（雙向作用剪力/衝剪）",
+  "ACI 318-19 §21.2.2（拉力控制應變分區）"
  ],
  "notes": [
   "單向板設計假設簡支單跨、取 1m 寬度分析；連續板或不同支承條件應依實際彎矩係數重新計算。",
+  "單向板撓曲設計以實際提供之配筋反算中性軸深度與拉力筋應變 εt，驗證 As,max=0.75ρb·b·d 及 εt≥0.005 之拉力控制條件，確認前段 Rn 公式所採用之 φ=0.9 假設成立；若不成立應加厚板厚或提高混凝土強度。",
   "衝剪檢核僅涵蓋內柱對稱直接剪力，未考慮不平衡彎矩傳遞，邊柱/角柱應另行檢討。",
   "本計算僅供初步設計參考，正式設計應由專業結構工程師複核。",
   "本計算書應經專業技師簽證後，始得作為正式送審文件。"
